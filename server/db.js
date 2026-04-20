@@ -36,6 +36,13 @@ db.exec(`
   );
 `);
 
+// Migration: add trade_id column to link auto-generated cash entries to trades
+try {
+  db.prepare("SELECT trade_id FROM transactions LIMIT 1").get();
+} catch (e) {
+  db.exec("ALTER TABLE transactions ADD COLUMN trade_id INTEGER DEFAULT NULL REFERENCES trades(id)");
+}
+
 // Migration: add user column if missing (existing DBs)
 try {
   db.prepare("SELECT user FROM transactions LIMIT 1").get();

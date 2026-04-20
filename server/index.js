@@ -35,10 +35,7 @@ app.get('/api/balance', (req, res) => {
   const user = req.query.user || '';
   const deposits = db.prepare("SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user = ? AND type = 'deposit'").get(user).total;
   const withdrawals = db.prepare("SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user = ? AND type = 'withdrawal'").get(user).total;
-  // Only count trades from this user's portfolios
-  const buys = db.prepare("SELECT COALESCE(SUM(t.shares * t.price_per_share), 0) as total FROM trades t JOIN portfolios p ON t.portfolio_id = p.id WHERE p.user = ? AND t.type = 'buy'").get(user).total;
-  const sells = db.prepare("SELECT COALESCE(SUM(t.shares * t.price_per_share), 0) as total FROM trades t JOIN portfolios p ON t.portfolio_id = p.id WHERE p.user = ? AND t.type = 'sell'").get(user).total;
-  res.json({ balance: deposits - withdrawals - buys + sells });
+  res.json({ balance: deposits - withdrawals });
 });
 
 // --- Portfolios ---
@@ -88,14 +85,37 @@ app.post('/api/portfolios/:id/trades', (req, res) => {
   if (!date || !type || !ticker || !shares || !price_per_share) {
     return res.status(400).json({ error: 'Missing fields' });
   }
-  const result = db.prepare(
-    'INSERT INTO trades (portfolio_id, date, type, ticker, shares, price_per_share, notes) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(req.params.id, date, type, ticker.toUpperCase(), shares, price_per_share, notes || '');
-  res.json({ id: result.lastInsertRowid });
+  const portfolio = db.prepare('SELECT user FROM portfolios WHERE id = ?').get(req.params.id);
+  if (!portfolio) return res.status(404).json({ error: 'Portfolio not found' });
+
+  const insertTrade = db.transaction(() => {
+    const tradeResult = db.prepare(
+      'INSERT INTO trades (portfolio_id, date, type, ticker, shares, price_per_share, notes) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(req.params.id, date, type, ticker.toUpperCase(), shares, price_per_share, notes || '');
+    const tradeId = tradeResult.lastInsertRowid;
+
+    // Auto-create cash transaction: buy = withdrawal, sell = deposit
+    const cashType = type === 'buy' ? 'withdrawal' : 'deposit';
+    const amount = shares * price_per_share;
+    const cashNotes = `${type === 'buy' ? 'Buy' : 'Sell'} stock: ${ticker.toUpperCase()} (${shares} shares @ $${price_per_share})`;
+    db.prepare(
+      'INSERT INTO transactions (user, date, type, amount, notes, trade_id) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(portfolio.user, date, cashType, amount, cashNotes, tradeId);
+
+    return tradeId;
+  });
+
+  const tradeId = insertTrade();
+  res.json({ id: tradeId });
 });
 
 app.delete('/api/trades/:id', (req, res) => {
-  db.prepare('DELETE FROM trades WHERE id = ?').run(req.params.id);
+  const deleteTrade = db.transaction(() => {
+    // Delete linked cash transaction first
+    db.prepare('DELETE FROM transactions WHERE trade_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM trades WHERE id = ?').run(req.params.id);
+  });
+  deleteTrade();
   res.json({ ok: true });
 });
 
