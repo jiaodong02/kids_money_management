@@ -69,7 +69,11 @@ export default function Ledger({ user }) {
               {transactions.map(t => (
                 <tr key={t.id}>
                   <td>{t.date}</td>
-                  <td>{t.type === 'deposit' ? 'Deposit' : 'Withdrawal'}</td>
+                  <td>
+                    {t.is_interest
+                      ? <span className="tag tag-interest">Interest</span>
+                      : (t.type === 'deposit' ? 'Deposit' : 'Withdrawal')}
+                  </td>
                   <td className={t.type === 'deposit' ? 'positive' : 'negative'}>
                     {t.type === 'deposit' ? '+' : '-'}${t.amount.toFixed(2)}
                   </td>

@@ -4,11 +4,15 @@ export default function Summary({ user }) {
   const [balance, setBalance] = useState(0);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [ratePct, setRatePct] = useState('4.00');
+  const [distDate, setDistDate] = useState(new Date().toISOString().slice(0, 10));
+  const [distMsg, setDistMsg] = useState('');
 
   const load = async () => {
-    const [balRes, sRes] = await Promise.all([
+    const [balRes, sRes, rRes] = await Promise.all([
       fetch(`/api/balance?user=${user}`),
       fetch(`/api/summary?user=${user}`),
+      fetch('/api/settings/interest-rate'),
     ]);
     setBalance((await balRes.json()).balance);
     const portfolios = await sRes.json();
@@ -17,10 +21,45 @@ export default function Summary({ user }) {
     const totalCost = portfolios.reduce((s, p) => s + p.totalCost, 0);
     const totalValue = portfolios.reduce((s, p) => s + p.totalValue, 0);
     setSummary({ holdings, totalCost, totalValue });
+    const r = (await rRes.json()).rate;
+    setRatePct((r * 100).toFixed(2));
     setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
+
+  const saveRate = async () => {
+    const pct = parseFloat(ratePct);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      setDistMsg('Rate must be between 0 and 100%.');
+      return;
+    }
+    const r = pct / 100;
+    const res = await fetch('/api/settings/interest-rate', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rate: r }),
+    });
+    if (res.ok) {
+      setDistMsg(`Rate saved: ${(r * 100).toFixed(2)}%`);
+    }
+  };
+
+  const distribute = async () => {
+    const res = await fetch('/api/distribute-interest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: distDate }),
+    });
+    const { results } = await res.json();
+    const parts = results.map(r =>
+      r.skipped
+        ? `${r.user}: skipped`
+        : `${r.user}: +$${r.amount.toFixed(2)} (${r.days}d)`
+    );
+    setDistMsg(`Distributed on ${distDate} — ${parts.join(', ')}`);
+    load();
+  };
 
   const totalCost = summary ? summary.totalCost : 0;
   const totalValue = summary ? summary.totalValue : 0;
@@ -115,6 +154,33 @@ export default function Summary({ user }) {
           <p className="loading">No stock holdings yet. Add trades in the Stock Portfolio tab.</p>
         </div>
       )}
+
+      {/* Interest */}
+      <div className="card">
+        <h3>Interest</h3>
+        <p style={{ fontSize: 13, color: '#777', marginTop: 0 }}>
+          Annual rate, applied to time-weighted average cash balance since the last distribution.
+          Distribution always runs for both kids together, and is also auto-triggered on every stock trade.
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+          <label>Rate (%)
+            <input
+              type="number" step="0.01" min="0" max="100"
+              value={ratePct}
+              onChange={e => setRatePct(e.target.value)}
+              style={{ width: 90 }}
+            />
+          </label>
+          <button type="button" className="btn btn-secondary" onClick={saveRate}>Save Rate</button>
+          <label>Distribute as of
+            <input type="date" value={distDate} onChange={e => setDistDate(e.target.value)} />
+          </label>
+          <button type="button" className="btn btn-primary" onClick={distribute}>
+            Distribute for Both Kids
+          </button>
+        </div>
+        {distMsg && <p style={{ fontSize: 13, marginTop: 10 }}>{distMsg}</p>}
+      </div>
     </div>
   );
 }

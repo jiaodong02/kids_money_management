@@ -148,6 +148,15 @@ tr:hover { background: #f9f9f9; }
 
 .loading { color: #999; font-style: italic; }
 
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.tag-interest { background: #fef5e7; color: #b9770e; border: 1px solid #f5cba7; }
+
 .inline-form {
   display: flex;
   gap: 8px;

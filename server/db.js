@@ -34,13 +34,27 @@ db.exec(`
     price_per_share REAL NOT NULL CHECK(price_per_share > 0),
     notes TEXT DEFAULT ''
   );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
+
+db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('interest_rate', '0.04')").run();
 
 // Migration: add trade_id column to link auto-generated cash entries to trades
 try {
   db.prepare("SELECT trade_id FROM transactions LIMIT 1").get();
 } catch (e) {
   db.exec("ALTER TABLE transactions ADD COLUMN trade_id INTEGER DEFAULT NULL REFERENCES trades(id)");
+}
+
+// Migration: mark auto-generated interest deposits
+try {
+  db.prepare("SELECT is_interest FROM transactions LIMIT 1").get();
+} catch (e) {
+  db.exec("ALTER TABLE transactions ADD COLUMN is_interest INTEGER NOT NULL DEFAULT 0");
 }
 
 // Migration: add user column if missing (existing DBs)
